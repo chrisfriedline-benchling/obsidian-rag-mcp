@@ -225,6 +225,41 @@ class MarkdownChunker:
         current_index = base_index
 
         for para in paragraphs:
+            # A single paragraph larger than max_chars (e.g. one unbroken
+            # block of transcript dialogue with no blank lines) can't be
+            # bounded by the "does it fit in current_chunk" check below --
+            # split it on its own before the normal accumulation logic runs.
+            if len(para) > max_chars:
+                if current_chunk.strip():
+                    chunks.append(
+                        Chunk(
+                            content=current_chunk.strip(),
+                            source_path=source_path,
+                            chunk_index=current_index,
+                            title=title,
+                            heading=heading,
+                            tags=tags,
+                            frontmatter=frontmatter,
+                        )
+                    )
+                    current_index += 1
+                    current_chunk = ""
+
+                for piece in self._hard_split(para, max_chars):
+                    chunks.append(
+                        Chunk(
+                            content=piece.strip(),
+                            source_path=source_path,
+                            chunk_index=current_index,
+                            title=title,
+                            heading=heading,
+                            tags=tags,
+                            frontmatter=frontmatter,
+                        )
+                    )
+                    current_index += 1
+                continue
+
             # Check if adding this paragraph exceeds limit
             if (
                 len(current_chunk) + len(para) > max_chars
@@ -268,6 +303,41 @@ class MarkdownChunker:
             )
 
         return chunks
+
+    def _hard_split(self, text: str, max_chars: int) -> list[str]:
+        """
+        Split an oversized, unbreakable paragraph into pieces no larger than
+        max_chars. Prefers splitting on line boundaries (e.g. one line per
+        speaker turn in a transcript); falls back to a raw character slice
+        for a single line that is itself larger than max_chars.
+        """
+        if len(text) <= max_chars:
+            return [text]
+
+        pieces = []
+        current = ""
+
+        for line in text.split("\n"):
+            if len(line) > max_chars:
+                if current:
+                    pieces.append(current)
+                    current = ""
+                # Line itself exceeds the limit -- slice it directly.
+                for i in range(0, len(line), max_chars):
+                    pieces.append(line[i : i + max_chars])
+                continue
+
+            candidate = f"{current}\n{line}" if current else line
+            if len(candidate) > max_chars:
+                pieces.append(current)
+                current = line
+            else:
+                current = candidate
+
+        if current:
+            pieces.append(current)
+
+        return pieces
 
     def _split_paragraphs(self, content: str) -> list[str]:
         """

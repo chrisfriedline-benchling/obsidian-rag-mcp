@@ -1,7 +1,13 @@
 """RAG components for Obsidian vault indexing and search."""
 
 from .chunker import Chunk, ChunkerConfig, MarkdownChunker
-from .embedder import EmbedderConfig, OpenAIEmbedder
+from .embedder import (
+    BedrockEmbedder,
+    BedrockEmbedderConfig,
+    EmbedderConfig,
+    OpenAIEmbedder,
+    create_embedder,
+)
 from .engine import RAGEngine, SearchResponse, SearchResult
 from .indexer import IndexerConfig, IndexStats, VaultIndexer
 
@@ -11,6 +17,9 @@ __all__ = [
     "MarkdownChunker",
     "EmbedderConfig",
     "OpenAIEmbedder",
+    "BedrockEmbedder",
+    "BedrockEmbedderConfig",
+    "create_embedder",
     "RAGEngine",
     "SearchResponse",
     "SearchResult",

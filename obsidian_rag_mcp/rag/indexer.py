@@ -20,7 +20,7 @@ import chromadb
 from chromadb.config import Settings
 
 from .chunker import Chunk, ChunkerConfig, MarkdownChunker
-from .embedder import EmbedderConfig, OpenAIEmbedder
+from .embedder import EmbedderConfig, create_embedder
 
 if TYPE_CHECKING:
     from obsidian_rag_mcp.reasoning import ConclusionExtractor, ConclusionStore
@@ -110,7 +110,7 @@ class VaultIndexer:
 
         # Initialize components
         self.chunker = MarkdownChunker(config.chunker_config)
-        self.embedder = OpenAIEmbedder(api_key=api_key, config=config.embedder_config)
+        self.embedder = create_embedder(api_key=api_key, config=config.embedder_config)
 
         # Initialize ChromaDB
         persist_path = Path(config.persist_dir).resolve()

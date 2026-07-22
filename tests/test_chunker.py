@@ -153,6 +153,39 @@ Content here.
 
         assert chunks[0].source_path == path
 
+    def test_oversized_unbroken_paragraph_is_split(self):
+        """
+        A single "paragraph" (no blank line inside it) larger than
+        max_chunk_tokens must still be split into bounded pieces.
+
+        Regression test: transcript-style content (e.g. a block of speaker
+        dialogue with one line per turn but no blank lines) used to pass
+        through _chunk_section's paragraph loop untouched, because the
+        overflow check only fires once current_chunk already holds
+        content. That produced a single oversized chunk which downstream
+        embedding APIs reject outright (e.g. Bedrock Titan's 8192-token
+        input ceiling).
+        """
+        max_chars = ChunkerConfig().max_chunk_tokens * 4  # ~4000 chars
+
+        lines = [f"Speaker {i % 3 + 1}: dialogue line {i} " * 3 for i in range(400)]
+        big_paragraph = "\n".join(lines)
+        assert len(big_paragraph) > max_chars * 3  # sanity check the fixture
+
+        content = f"# Meeting\n\n## Speaker Attribution\n\n{big_paragraph}\n"
+        chunks = self.chunker.chunk_document(content, "transcript.md")
+
+        assert len(chunks) > 1
+        for chunk in chunks:
+            assert len(chunk.content) <= max_chars
+
+        # No dialogue lines should be dropped or duplicated across pieces
+        reassembled = "\n".join(
+            c.content for c in chunks if c.heading == "Speaker Attribution"
+        )
+        for i in (0, 199, 399):
+            assert f"dialogue line {i} " in reassembled
+
 
 class TestChunkerConfig:
     """Test ChunkerConfig defaults and behavior."""
