@@ -240,8 +240,11 @@ class BedrockEmbedderConfig:
     region: str | None = None  # Falls back to AWS_REGION / boto3 default
     profile: str | None = None  # Falls back to AWS_PROFILE / boto3 default
     max_workers: int = 8  # Titan has no batch API; parallelize individual calls
-    query_max_chars: int = 8000
-    max_chars: int = 30000
+    # Titan V2 hard-rejects requests over 8192 input tokens. Truncate below
+    # that ceiling by actual token count (not a char-count proxy) -- a
+    # char-based estimate isn't reliable enough to guarantee staying under
+    # a limit this tight, especially for markdown-heavy content.
+    max_input_tokens: int = 8000
 
 
 class BedrockEmbedder:
@@ -298,8 +301,7 @@ class BedrockEmbedder:
         if not texts:
             return []
 
-        max_chars = self.config.query_max_chars if is_query else self.config.max_chars
-        cleaned = [self._clean_text(t, max_chars) for t in texts]
+        cleaned = [self._clean_text(t) for t in texts]
 
         logger.debug(
             f"Embedding {len(cleaned)} texts via Bedrock "
@@ -342,17 +344,38 @@ class BedrockEmbedder:
             )
         return [float(v) for v in embedding]
 
-    def _clean_text(self, text: str, max_chars: int = 30000) -> str:
-        """Clean text for embedding (same rules as OpenAIEmbedder)."""
+    def _clean_text(self, text: str) -> str:
+        """
+        Clean text for embedding and truncate to Titan's actual token
+        ceiling (not a character-count proxy -- Titan's 8192-token limit is
+        tight enough that a char estimate can under- or over-truncate).
+        """
         import re
+
+        from obsidian_rag_mcp.utils.tokens import count_tokens
 
         text = text.replace("\x00", "")
         text = re.sub(r"\n{3,}", "\n\n", text)
         text = "\n".join(line.rstrip() for line in text.split("\n"))
-        if len(text) > max_chars:
-            text = text[:max_chars]
-            logger.debug(f"Truncated text to {max_chars} characters")
-        return text
+
+        if count_tokens(text) <= self.config.max_input_tokens:
+            return text
+
+        # Binary-search the largest character-length prefix whose token
+        # count fits, rather than guessing a char/token ratio.
+        lo, hi = 0, len(text)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if count_tokens(text[:mid]) <= self.config.max_input_tokens:
+                lo = mid
+            else:
+                hi = mid - 1
+
+        logger.debug(
+            f"Truncated text from {count_tokens(text)} to "
+            f"{self.config.max_input_tokens} tokens"
+        )
+        return text[:lo]
 
     @property
     def embedding_dimension(self) -> int:
